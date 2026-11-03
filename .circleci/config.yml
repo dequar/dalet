@@ -1,0 +1,59 @@
+
+version: 2.1
+
+parameters:
+  run_dalet_build:
+    type: boolean
+    default: false
+
+jobs:
+  build-dalet:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: xlarge
+
+    steps:
+      - checkout
+
+      - run:
+          name: Initialize submodules
+          command: |
+            git submodule update --init --recursive
+
+      - run:
+          name: Prepare signing key and build Dalet
+          no_output_timeout: 30m
+          command: |
+            set -e
+
+            echo "Disk space before build:"
+            df -h
+
+            sudo apt-get update
+            sudo apt-get install -y openjdk-21-jdk-headless
+
+            keytool -genkeypair \
+              -keystore /tmp/dalet-ci.jks \
+              -storepass dalet-ci-temp \
+              -keypass dalet-ci-temp \
+              -alias dalet-ci \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Dalet CI"
+
+            export LOCAL_TEST_JKS="$(printf 'storePassword=dalet-ci-temp\nkeyPassword=dalet-ci-temp\nkeyAlias=dalet-ci\n' | base64 -w0)"
+            export STORE_TEST_JKS="$(base64 -w0 /tmp/dalet-ci.jks)"
+
+            chmod +x ./*.sh
+            ./build.sh
+
+      - store_artifacts:
+          path: chromium/src/out/release
+          destination: dalet-build
+
+workflows:
+  build-dalet:
+    when: << pipeline.parameters.run_dalet_build >>
+    jobs:
+      - build-dalet
